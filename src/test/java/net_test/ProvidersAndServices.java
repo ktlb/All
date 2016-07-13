@@ -45,9 +45,11 @@ public class ProvidersAndServices {
 		}
 
 		List<Provider> l = Providers.getProviderList().providers();
-//		List<Provider> l = Providers.getFullProviderList().providers();
-		Provider[] providers = Security.getProviders();
-		for (Provider p : providers) {
+		List<Provider> providers = Providers.getFullProviderList().providers();
+		//用这个方法获取会不会好点
+//		Provider[] providers = Security.getProviders();
+		
+		for (Provider p : l) {
 			System.out.println(p.getName()+" : ");
 			Set<Service> s = p.getServices();
 			Iterator<Service> i = s.iterator();
