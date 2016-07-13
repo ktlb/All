@@ -1,0 +1,55 @@
+1.SSLContext.getDefault() 获得默认sslcontext,如果setDefault调用过,则返回set的值
+	注:getDefault()获得的,无需初始化,否则必须调用init初始化
+2.KeyManager 由keymanagerfactory生成,默认算法X509,Sun和ibm有不同,SunX509,IBMX509
+
+3.keystore格式 JKS, JCEKS, PKCS12, PKCS11(java不支持)
+ 
+4.常用加密算法:RSA,DSA
+
+5.X509证书格式(X509CertInfo类)
+	1)证书的公钥(通过keypairgenerator生成,CertificateX509Key类)
+	2)证书序列号(X509CertInfo.SERIAL_NUMBER,CertificateSerialNumber)
+	3)证书版本号(X509CertInfo.VERSION,CertificateVersion)
+	4)证书主题信息(X509CertInfo.SUBJECT和X500Name,CertificateSubjectName类)
+		类似C=国家,CN=姓名,ST=州或者省(地名),L=地区,OU=组织单位名,O=组织名
+	5)证书有效期(CertificateValidity)
+	6)签名算法信息(CertificateAlgorithmId类)
+	7)签发者信息(CertificateIssuerName)类似于主题信息,代码中是与主题信息一样
+	8)最后用私钥签名sign
+	
+	主要涉及类:KeyPairGenerator 生成公钥私钥
+			 X500Name	证书的主题信息
+			 Signature  签名算法
+			 X500Signer	签名相关,算法id,签发者信息
+			 X509CertInfo	证书信息实例,一个实体类
+			 X509CertImpl	证书实例,继承于certificate
+双向验证:	
+	Server需要：
+	1）KeyStore: 其中保存服务端的私钥
+	2）Trust KeyStore:其中保存客户端的授权证书
+	Client需要：
+	1）KeyStore：其中保存客户端的私钥
+	2）Trust KeyStore：其中保存服务端的授权证书
+
+client采用client.keystore中的clientkey私钥进行数据加密，发送给server。
+server采用server.trustkeystore中的client.crt证书（包含了clientkey的公钥）对数据解密，如果解密成功，证明消息来自client，进行逻辑处理。
+
+server采用server.keystore中的serverkey私钥进行数据加密，发送给client。
+client采用client.trustkeystore中的server.crt证书（包含了serverkey的公钥）对数据解密，如果解密成功，证明消息来自server，进行逻辑处理。
+
+
+证书链:
+	生成Root CA私钥与证书： 
+	1)先生成RootCA私钥--》使用私钥生成CSR(证书请求文件)--》生成自签名根证书。用来给二级CA证书签名。
+	2)生成二级CA 私钥与证书：（假如有两个二级CA， 分别负责管理服务器端和客户端证书） 
+	3)先生成ServerCA私钥--》使用私钥生成CSR--》使用根证书签名生成二级证书。用来给服务器证书签名。 
+	4) 先生成ClientCA私钥--》使用私钥生成CSR--》使用根证书签名生成二级证书。用来给客户端证书签名。
+	
+	
+	
+	1.支持http https
+2.支持用户名校验
+3.支持网址过滤(白名单,黑名单之类的)
+4.支持下载禁用(即禁止下载)
+5.上网时间段控制
+6.配置(包括:服务器地址,ip,端口)
