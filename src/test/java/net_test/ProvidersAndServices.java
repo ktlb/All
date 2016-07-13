@@ -5,6 +5,7 @@ import java.net.InetSocketAddress;
 import java.security.NoSuchAlgorithmException;
 import java.security.Provider;
 import java.security.Provider.Service;
+import java.security.Security;
 import java.security.Signature;
 import java.util.Iterator;
 import java.util.List;
@@ -44,7 +45,9 @@ public class ProvidersAndServices {
 		}
 
 		List<Provider> l = Providers.getProviderList().providers();
-		for (Provider p : l) {
+//		List<Provider> l = Providers.getFullProviderList().providers();
+		Provider[] providers = Security.getProviders();
+		for (Provider p : providers) {
 			System.out.println(p.getName()+" : ");
 			Set<Service> s = p.getServices();
 			Iterator<Service> i = s.iterator();
