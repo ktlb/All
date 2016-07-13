@@ -10,8 +10,8 @@ import java.util.zip.ZipOutputStream;
 public class ZipReader {
 	
 	public static void main(String[] args) throws Exception {
-//		InputStream fin = ZipReader.class.getResourceAsStream("/xx.zip"); //当前包下取 用xx.zip  ,classpath下只能/xx.zip
-		FileInputStream fin = new FileInputStream("xx.zip");
+		InputStream fin = ZipReader.class.getResourceAsStream("/xx.zip"); //当前包下取 用xx.zip  ,classpath下只能/xx.zip
+//		FileInputStream fin = new FileInputStream("xx.zip");//这里工程根目录下
 		ZipInputStream in = new ZipInputStream(fin);
 		
 		ZipEntry zipEntry ;
