@@ -1,14 +1,18 @@
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Random;
 
 public class Tester {
 
-	public static void main(String[] args) {
+	public static void main2(String[] args) {
 		final List<String> list = new ArrayList<>();
 //		list.add("YqB5JF6i6HGg3QcQzjw5Ag==TyLnJD");
 		list.add("PjrAWvaFuIFDZI7fIl+6Yw==TyLnJD");
@@ -23,10 +27,10 @@ public class Tester {
 		for(int i = 0;i<1;i++){
 			final String temp = list.get(i);
 			new Thread(){
+				HttpURLConnection con = null;
 				public void run() {
 					try {
-						HttpURLConnection con = (HttpURLConnection) new URL("http://127.0.0.1:8082/axp-acl/user/login.htm").openConnection();
-//						HttpURLConnection con = (HttpURLConnection) new URL("http://127.0.0.1:1111/axp-acl/user/login.htm").openConnection();
+						 con = (HttpURLConnection) new URL("http://127.0.0.1:8082/axp-acl/user/login.htm").openConnection();
 						con.setDoOutput(true);
 						con.setDoInput(true);
 						con.setReadTimeout(3000);
@@ -44,10 +48,33 @@ public class Tester {
 						System.out.println(temp);
 					} catch (IOException e) {
 						e.printStackTrace();
+					}finally {
+						if(con != null)
+						con.disconnect();
 					}
 				};
 			}.start();
 		}
 	}
+	public static void main(String[] args) throws Exception {
+		Class<C2> clazz = C2.class;
+//		Method m = clazz.getMethod("test", new Class[]{});
+		Method[] methods = clazz.getMethods();
+		System.out.println(methods[1].isBridge());//桥方法的modifier是4161
+	}
+	
+}
+abstract class A implements Closeable{ //相当于继承了接口中的方法,所以可以直接调用
+}
 
+interface C1<T> {
+	public T test() ;
+}
+class C2 implements C1<String>{
+
+	@Override
+	public String test() {
+		return null;
+	}
+	
 }
