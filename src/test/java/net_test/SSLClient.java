@@ -44,7 +44,7 @@ public class SSLClient {
 	private InputStream in;
 
 	public static void main(String[] args) {
-		System.setProperty("javax.net.debug", "all");
+//		System.setProperty("javax.net.debug", "all");
 		try {
 			SSLClient client = new SSLClient();
 			client.initSSL();
@@ -108,9 +108,19 @@ public class SSLClient {
 			case NEED_UNWRAP:
 				read(in, u_src);
 				u_src.flip();
-				SSLEngineResult unwrapResult = sslengine.unwrap(u_src, u_dst);
-				handshakeStatus = unwrapResult.getHandshakeStatus();
-				status = unwrapResult.getStatus();
+//				do{
+					SSLEngineResult unwrapResult = sslengine.unwrap(u_src, u_dst);
+					handshakeStatus = unwrapResult.getHandshakeStatus();
+					status = unwrapResult.getStatus();
+//				}while(handshakeStatus == HandshakeStatus.NEED_UNWRAP && status == Status.OK
+//						&& u_src.hasRemaining()); //3
+					/**
+					 * 缓存byte数组设置过大
+					 * 1,有的时候,没有读取完,需要多次unwrap(这里需要再次读)
+					 * 2,读取完了,但是没有执行完task,需要多次unwrap (这里不能再次读)
+					 * 3,读取多了,需要多次unwrap(这里不能再次读)
+					 */
+					
 				if (u_src.hasRemaining()) {
 					u_src.compact();// 还没有读完
 				} else {
@@ -134,7 +144,6 @@ public class SSLClient {
 			}
 		}
 		System.out.println("handshakeStatus :" + handshakeStatus);
-		System.out.println("status :" + status);
 //		HandshakeStatus handshakeStatus = sslengine.getHandshakeStatus(); //为NOT_HANDSHAKING
 	}
 
@@ -182,7 +191,7 @@ public class SSLClient {
 	}
 
 	private void read(InputStream in, ByteBuffer buff) throws IOException {
-		byte[] temp = new byte[1024];
+		byte[] temp = new byte[1];
 		try {
 			int size = in.read(temp);
 			if (size > 0) {
