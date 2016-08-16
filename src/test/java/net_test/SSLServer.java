@@ -13,6 +13,8 @@ import javax.net.ssl.HandshakeCompletedListener;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 
 import ssl.SSLContextInitializer;
 
@@ -34,7 +36,9 @@ public class SSLServer {
 				"rootpwd", "sub", "subpwd",
 				"C=China,ST=JiangSu,L=Nanjing,OU=WJHome,O=WJ.inc,CN=WJSub");
 		SSLContext sslContext = initializer.init(subKeyStore, "subpwd");
-		
+		TrustManagerFactory tmf = TrustManagerFactory.getInstance("X509");
+		tmf.init((KeyStore)null);
+		TrustManager[] trustManagers = tmf.getTrustManagers();
 		SSLServerSocket serverSocket = (SSLServerSocket) sslContext.getServerSocketFactory().createServerSocket();
 		serverSocket.bind(new InetSocketAddress("0.0.0.0", 2233));
 		SSLSocket socket = (SSLSocket) serverSocket.accept();

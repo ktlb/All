@@ -5,171 +5,202 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLEngineResult.HandshakeStatus;
 import javax.net.ssl.SSLEngineResult.Status;
-import javax.net.ssl.X509TrustManager;
-
+import javax.net.ssl.SSLSession;
+/**
+ * 模拟和百度进行SSL握手
+ * @author WJ
+ *
+ */
 public class SSLClient {
-	public static HandshakeStatus  handStatus;
-	
-	public static SSLEngineResult result;
-	
-	public static Runnable runnable;
-	
-	public static SSLEngine sslEngine;
 
-	public static void main(String[] args) throws Exception, IOException {
+	private SSLEngine sslengine;
+	/**
+	 * wrap 源数据
+	 */
+	private ByteBuffer w_src;
+	/**
+	 * wrap 后发送到对端
+	 */
+	private ByteBuffer w_dst;
 
-		Socket socket = new Socket();
-		socket.connect(new InetSocketAddress("127.0.0.1", 2233));
-		OutputStream out = socket.getOutputStream();
-		InputStream in = socket.getInputStream();
-		socket.setSoTimeout(5000);
-		// 初始化sslengine
-		SSLContext sslContext = SSLContext.getInstance("TLS");
-		sslContext
-				.init(null,
-						new X509TrustManager[] { new SSLClient().new MyX509TrustManager() },
-						null);
-		sslEngine = sslContext.createSSLEngine();
-		sslEngine.setUseClientMode(true);
-		sslEngine.beginHandshake();
-		handStatus = sslEngine.getHandshakeStatus();
-		log(null,handStatus.toString());
-		// 创建通信所用的2个buffer
-		ByteBuffer appIn = ByteBuffer.allocate(sslEngine.getSession()
-				.getApplicationBufferSize());
-		ByteBuffer appOut = ByteBuffer.allocate(sslEngine.getSession()
-				.getApplicationBufferSize());
-		ByteBuffer netIn = ByteBuffer.allocate(sslEngine.getSession()
-				.getPacketBufferSize());
-		ByteBuffer netOut = ByteBuffer.allocate(sslEngine.getSession()
-				.getPacketBufferSize());
-		
-		// 开始握手
-		while (handStatus != SSLEngineResult.HandshakeStatus.FINISHED) {
-			
-			switch (handStatus) {
-			// 发送探测消息,就是hello消息
+	/**
+	 * un_wrap 来自对端的
+	 */
+	private ByteBuffer u_src;
+	/**
+	 * un_wrap 后的源数据
+	 */
+	private ByteBuffer u_dst;
+
+	private Socket socket;
+	private OutputStream out;
+	private InputStream in;
+
+	public static void main(String[] args) {
+		System.setProperty("javax.net.debug", "all");
+		try {
+			SSLClient client = new SSLClient();
+			client.initSSL();
+			client.connect();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	public void simpleConnect() throws IOException {
+		initSocket();
+		StringBuilder request = new StringBuilder("GET / HTTP/1.1\r\n");
+		request.append("Host: www.baidu.com\r\n")
+				.append("Connection: keep-alive\r\n")
+				.append("Pragma: no-cache\r\n")
+				.append("Cache-Control: no-cache\r\n")
+				.append("Pragma: no-cache\r\n")
+				.append("User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.116 Safari/537.36\r\n")
+				.append("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\n")
+				.append("Accept-Encoding: gzip, deflate, sdch, br\r\n")
+				.append("Accept-Language: zh-CN,zh;q=0.8\r\n")
+				.append("\r\n");
+		out.write(request.toString().getBytes());
+		out.flush();
+		skipHeader(in);
+		print(in);
+		socket.close();
+	}
+
+	private void initSocket() throws IOException {
+		socket = new Socket();
+		socket.connect(new InetSocketAddress("180.97.33.108", 443), 3000);
+//		socket.connect(new InetSocketAddress("180.96.11.189", 443), 3000);
+		socket.setSoTimeout(1000);
+		out = socket.getOutputStream();
+		in = socket.getInputStream();
+	}
+
+	private void connect() throws IOException {
+		initSocket();
+		handShake();
+	}
+
+	private HandshakeStatus handshakeStatus;
+	private Status status;
+
+	private void handShake() throws IOException {
+		sslengine.beginHandshake(); //显示的调用,否则,handshakestatus 为NOT_HANDSHAKING
+		handshakeStatus = sslengine.getHandshakeStatus();
+		// HandshakeStatus.FINISHED 只能根据wrap/unwrap获取
+		while (handshakeStatus != HandshakeStatus.FINISHED) { 
+			switch (handshakeStatus) {
 			case NEED_WRAP:
-				result = sslEngine.wrap(appOut, netOut); // 没有真实的业务数据,握手中所用的加密数据
-				doTask();
-				handStatus = sslEngine.getHandshakeStatus();
-				log(result,"[Wrap]");
-//				handStatus = result.getHandshakeStatus();
-				out.write(getBytes(netOut));
-				appOut.flip();
-				netOut.clear();
+				SSLEngineResult wrapResult = sslengine.wrap(w_src, w_dst);
+				out.write(bytes(w_dst));
 				out.flush();
+				handshakeStatus = wrapResult.getHandshakeStatus();
+				status = wrapResult.getStatus();
+				w_src.clear();
 				break;
-
 			case NEED_UNWRAP:
-				int i = -1;
-				try {
-					while ((i = in.read()) != -1) {
-						netIn.put((byte) i);
-					}
-				} catch (Exception e) {
+				read(in, u_src);
+				u_src.flip();
+				SSLEngineResult unwrapResult = sslengine.unwrap(u_src, u_dst);
+				handshakeStatus = unwrapResult.getHandshakeStatus();
+				status = unwrapResult.getStatus();
+				if (u_src.hasRemaining()) {
+					u_src.compact();// 还没有读完
+				} else {
+					u_src.clear();
 				}
-				netIn.flip();//netIn.limit(netIn.position()).position(0);
-				result = sslEngine.unwrap(netIn, appIn);
-				doTask();
-				appIn.clear();
-				handStatus = sslEngine.getHandshakeStatus();
-				log(result,"[UnWrap]");
-				netIn.clear();
 				break;
 			case NEED_TASK:
-				handStatus = doTask();
+				Runnable task = null;
+				while ((task = sslengine.getDelegatedTask()) != null) {
+					task.run();
+				}
+				handshakeStatus = sslengine.getHandshakeStatus();
+				break;
+			case FINISHED:
 				break;
 			case NOT_HANDSHAKING:
-				System.out.println("NOT_HANDSHAKING : 握手完成");
+				System.out.println("握手完成,可以传输业务数据");
+				break;
+			default:
 				break;
 			}
-
 		}
-		System.out.println("FINISHED : 握手完成");
-		
-	}
-	
-	public static HandshakeStatus doTask(){
-		while ((runnable = sslEngine.getDelegatedTask()) != null) {
-			runnable.run();
-		}
-		return sslEngine.getHandshakeStatus();
+		System.out.println("handshakeStatus :" + handshakeStatus);
+		System.out.println("status :" + status);
+//		HandshakeStatus handshakeStatus = sslengine.getHandshakeStatus(); //为NOT_HANDSHAKING
 	}
 
-	public static byte[] getBytes(ByteBuffer net) {
-		byte[] b = new byte[net.position()];
-		net.position(0);
-		net.get(b);
+	private byte[] bytes(ByteBuffer buff) {
+		byte[] b = new byte[buff.position()];
+		buff.flip();// 可读
+		buff.get(b);
+		buff.clear();// 下次可写
 		return b;
 	}
 
-	public static void socket() throws Exception {
-		byte[] b = new byte[1024];
-		Socket socket = new Socket();
-		socket.connect(new InetSocketAddress("127.0.0.1", 2233));
-		System.out.println(socket);
-		OutputStream out = socket.getOutputStream();
-		out.write("hello ssl".getBytes());// 可以正常连,但是必须传输ssl的数据,普通数据不可以
-		InputStream in = socket.getInputStream();
-		in.read(b);
-		System.out.println(new String(b));
-		socket.close();
+	private void initSSL() throws Exception {
+		SSLContext context = SSLContext.getInstance("TLSv1.2");
+		context.init(null, null, null);
+		sslengine = context.createSSLEngine();
+		sslengine.setUseClientMode(true);
+		SSLSession sslSession = sslengine.getSession();
+		w_src = ByteBuffer.allocate(sslSession.getApplicationBufferSize());
+		w_dst = ByteBuffer.allocate(sslSession.getPacketBufferSize());
+		u_src = ByteBuffer.allocate(sslSession.getPacketBufferSize());
+		u_dst = ByteBuffer.allocate(sslSession.getApplicationBufferSize());
+//		 System.out.println("支持的协议: " +
+//		 Arrays.asList(sslengine.getSupportedProtocols()));
+//		 System.out.println("启用的协议: " +
+//		 Arrays.asList(sslengine.getEnabledProtocols()));
+//		 System.out.println("支持的加密套件: " +
+//		 Arrays.asList(sslengine.getSupportedCipherSuites()));
+//		 System.out.println("启用的加密套件: " +
+//		 Arrays.asList(sslengine.getEnabledCipherSuites()));
 	}
 
-	public static void sslSocket() throws Exception {
-		byte[] b = new byte[1024];
-		SSLContext sslContext = SSLContext.getInstance("SSL");
-		sslContext
-				.init(null,
-						new X509TrustManager[] { new SSLClient().new MyX509TrustManager() },
-						null); // 只验证服务端
-		// sslContext.init(null, null, null); //这样初始化,无法存储server的证书,会报Received
-		// fatal alert: certificate_unknown
-		Socket socket = sslContext.getSocketFactory().createSocket();
-		socket.connect(new InetSocketAddress("127.0.0.1", 2233));
-		System.out.println("socket : " + socket);
-		socket.getInputStream().read(b);
-		socket.getOutputStream().write("sent from client".getBytes());
-		System.out.println(new String(b));
-		socket.close();
-	}
-
-	class MyX509TrustManager implements X509TrustManager {
-
-		@Override
-		public void checkClientTrusted(X509Certificate[] arg0, String arg1)
-				throws CertificateException {
+	/**
+	 * 普通socket,读取响应后直接关闭
+	 * 
+	 * @param in
+	 * @throws IOException
+	 */
+	private void print(InputStream in) throws IOException {
+		byte[] temp = new byte[1024];
+		int size = -1;
+		while ((size = in.read(temp)) != -1) {
+			System.out.println(new String(temp, 0, size, "UTF-8"));
 		}
-
-		@Override
-		public void checkServerTrusted(X509Certificate[] arg0, String arg1)
-				throws CertificateException {
-		}
-
-		@Override
-		public X509Certificate[] getAcceptedIssuers() {
-			return null;
-		}
-
-	}
-	
-	public static void log(SSLEngineResult rs,String status){
-		System.out.println("SSLEngineHandStatus : "+status);
-		if(rs!=null)
-		System.out.println( "NextHandStatus : "+handStatus+"\r\nresultStatus : "+rs.getStatus()+" , "+"cosumed : "+rs.bytesConsumed()+" , "+"produced : "+rs.bytesProduced());
-		System.out.println("-------------------------------------");
+		in.close();
 	}
 
+	private void read(InputStream in, ByteBuffer buff) throws IOException {
+		byte[] temp = new byte[1024];
+		try {
+			int size = in.read(temp);
+			if (size > 0) {
+				buff.put(temp, 0, size);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();// 读满为止
+		}
+	}
+
+	private void skipHeader(InputStream in) throws IOException {
+		int i = 0;
+		while (i != -1) {
+			i = in.read();
+			if (('\n' == i && '\r' == in.read())) { // 这里如果是'\r' 才读下一个
+				in.skip(1);// 跳过下一个\n
+				break;
+			}
+		}
+	}
 }
