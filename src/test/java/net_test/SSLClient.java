@@ -1,5 +1,6 @@
 package net_test;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -24,25 +25,30 @@ public class SSLClient {
 	/**
 	 * wrap 源数据
 	 */
-	private ByteBuffer w_src;
+	private ByteBuffer myAppData;
 	/**
 	 * wrap 后发送到对端
 	 */
-	private ByteBuffer w_dst;
+	private ByteBuffer myNetData;
 
 	/**
 	 * un_wrap 来自对端的
 	 */
-	private ByteBuffer u_src;
+	private ByteBuffer peerNetData;
 	/**
 	 * un_wrap 后的源数据
 	 */
-	private ByteBuffer u_dst;
+	private ByteBuffer peerAppData;
 
 	private Socket socket;
 	private OutputStream out;
 	private InputStream in;
-
+	private HandshakeStatus handshakeStatus;
+	private Status status;
+	/**
+	 * unwrap前是否需要读
+	 */
+	private boolean read = true;
 	public static void main(String[] args) {
 //		System.setProperty("javax.net.debug", "all");
 		try {
@@ -76,8 +82,8 @@ public class SSLClient {
 
 	private void initSocket() throws IOException {
 		socket = new Socket();
-		socket.connect(new InetSocketAddress("180.97.33.108", 443), 3000);
-//		socket.connect(new InetSocketAddress("180.96.11.189", 443), 3000);
+		socket.connect(new InetSocketAddress("180.97.33.108", 443), 3000);//百度
+//		socket.connect(new InetSocketAddress("180.96.11.189", 443), 3000);//淘宝
 		socket.setSoTimeout(1000);
 		out = socket.getOutputStream();
 		in = socket.getInputStream();
@@ -86,10 +92,49 @@ public class SSLClient {
 	private void connect() throws IOException {
 		initSocket();
 		handShake();
-	}
+		if(true)
+			return;
+		StringBuilder request = new StringBuilder("GET / HTTP/1.1\r\n");
+		request.append("Host: www.baidu.com\r\n")
+				.append("Connection: keep-alive\r\n")
+				.append("Pragma: no-cache\r\n")
+				.append("Cache-Control: no-cache\r\n")
+				.append("Pragma: no-cache\r\n")
+				.append("User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.116 Safari/537.36\r\n")
+				.append("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\n")
+//				.append("Accept-Encoding: gzip, deflate, sdch, br\r\n") //返回的压缩格式
+				.append("Accept-Encoding: identity\r\n")
+				.append("Accept-Language: zh-CN,zh;q=0.8\r\n")
+				.append("\r\n");
+		SSLEngineResult result = sslengine.wrap(ByteBuffer.wrap(request.toString().getBytes()), myNetData);
+		out.write(bytes(myNetData));
+		out.flush();
+		FileOutputStream fout = new FileOutputStream("d:\\xx.html");
+		while (true) {
 
-	private HandshakeStatus handshakeStatus;
-	private Status status;
+			read(in, peerNetData);
+			peerNetData.flip();
+			SSLEngineResult unwrap = sslengine.unwrap(peerNetData, peerAppData);
+			while (unwrap.getStatus() != Status.OK) {
+				if (peerNetData.hasRemaining()) {
+					peerNetData.compact();// 还没有读完
+				} else {
+					peerNetData.clear();
+				}
+				read(in, peerNetData);
+				peerNetData.flip();
+				unwrap = sslengine.unwrap(peerNetData, peerAppData);
+			}
+//			System.out.println(new String(bytes(peerAppData),"UTF-8"));
+			fout.write(bytes(peerAppData));
+			fout.flush();
+			if (peerNetData.hasRemaining()) {
+				peerNetData.compact();// 还没有读完
+			} else {
+				peerNetData.clear();
+			}
+		}
+	}
 
 	private void handShake() throws IOException {
 		sslengine.beginHandshake(); //显示的调用,否则,handshakestatus 为NOT_HANDSHAKING
@@ -98,22 +143,29 @@ public class SSLClient {
 		while (handshakeStatus != HandshakeStatus.FINISHED) { 
 			switch (handshakeStatus) {
 			case NEED_WRAP:
-				SSLEngineResult wrapResult = sslengine.wrap(w_src, w_dst);
-				out.write(bytes(w_dst));
-				out.flush();
+				SSLEngineResult wrapResult = sslengine.wrap(myAppData, myNetData);
 				handshakeStatus = wrapResult.getHandshakeStatus();
 				status = wrapResult.getStatus();
-				w_src.clear();
+				if(status == Status.BUFFER_OVERFLOW){//myNetData空间不足,扩容一个标准包大小
+					increaseCapcity(myNetData,true);
+				}
+				out.write(bytes(myNetData));
+				out.flush();
+				myAppData.clear();
 				break;
 			case NEED_UNWRAP:
-				read(in, u_src);
-				u_src.flip();
-//				do{
-					SSLEngineResult unwrapResult = sslengine.unwrap(u_src, u_dst);
-					handshakeStatus = unwrapResult.getHandshakeStatus();
-					status = unwrapResult.getStatus();
-//				}while(handshakeStatus == HandshakeStatus.NEED_UNWRAP && status == Status.OK
-//						&& u_src.hasRemaining()); //3
+				if(read){
+					read(in, peerNetData);
+				}
+				peerNetData.flip();
+				SSLEngineResult unwrapResult = sslengine.unwrap(peerNetData, peerAppData);
+				handshakeStatus = unwrapResult.getHandshakeStatus();
+				status = unwrapResult.getStatus();
+				if(status == Status.BUFFER_UNDERFLOW && handshakeStatus == HandshakeStatus.NEED_UNWRAP){
+					read = true;
+				}else{
+					read = false;
+				}
 					/**
 					 * 缓存byte数组设置过大
 					 * 1,有的时候,没有读取完,需要多次unwrap(这里需要再次读)
@@ -121,10 +173,10 @@ public class SSLClient {
 					 * 3,读取多了,需要多次unwrap(这里不能再次读)
 					 */
 					
-				if (u_src.hasRemaining()) {
-					u_src.compact();// 还没有读完
+				if (peerNetData.hasRemaining()) {
+					peerNetData.compact();// 还没有读完
 				} else {
-					u_src.clear();
+					peerNetData.clear();
 				}
 				break;
 			case NEED_TASK:
@@ -135,7 +187,6 @@ public class SSLClient {
 				handshakeStatus = sslengine.getHandshakeStatus();
 				break;
 			case FINISHED:
-				break;
 			case NOT_HANDSHAKING:
 				System.out.println("握手完成,可以传输业务数据");
 				break;
@@ -144,7 +195,30 @@ public class SSLClient {
 			}
 		}
 		System.out.println("handshakeStatus :" + handshakeStatus);
-//		HandshakeStatus handshakeStatus = sslengine.getHandshakeStatus(); //为NOT_HANDSHAKING
+		handshakeStatus = sslengine.getHandshakeStatus(); //为NOT_HANDSHAKING
+	}
+	/**
+	 * 扩容
+	 * @param buff 带扩容buffer
+	 * @param packet 是否是packet
+	 */
+	private void increaseCapcity(ByteBuffer buff,boolean packet) {
+		SSLSession sslSession = sslengine.getSession();
+		int size = 0;
+		if(packet){
+			size = sslSession.getPacketBufferSize()+buff.capacity();
+		}else{
+			size = sslSession.getApplicationBufferSize()+buff.capacity();
+		}
+		byte [] dest = new byte[size];
+		int position = buff.position();
+		if(position != 0){
+			buff.flip();
+			byte [] src = new byte[position];
+			buff.get(src);
+			System.arraycopy(src, 0, dest, 0, position);
+		}
+		buff = ByteBuffer.wrap(dest);
 	}
 
 	private byte[] bytes(ByteBuffer buff) {
@@ -161,10 +235,14 @@ public class SSLClient {
 		sslengine = context.createSSLEngine();
 		sslengine.setUseClientMode(true);
 		SSLSession sslSession = sslengine.getSession();
-		w_src = ByteBuffer.allocate(sslSession.getApplicationBufferSize());
-		w_dst = ByteBuffer.allocate(sslSession.getPacketBufferSize());
-		u_src = ByteBuffer.allocate(sslSession.getPacketBufferSize());
-		u_dst = ByteBuffer.allocate(sslSession.getApplicationBufferSize());
+		myAppData = ByteBuffer.allocate(sslSession.getApplicationBufferSize());
+		myNetData = ByteBuffer.allocate(sslSession.getPacketBufferSize());
+		peerNetData = ByteBuffer.allocate(sslSession.getPacketBufferSize());
+		peerAppData = ByteBuffer.allocate(sslSession.getApplicationBufferSize());
+		myAppData = ByteBuffer.allocate(1); //扩容测试
+		myNetData = ByteBuffer.allocate(1);
+		peerNetData = ByteBuffer.allocate(1);
+		peerAppData = ByteBuffer.allocate(1);
 //		 System.out.println("支持的协议: " +
 //		 Arrays.asList(sslengine.getSupportedProtocols()));
 //		 System.out.println("启用的协议: " +
@@ -191,7 +269,8 @@ public class SSLClient {
 	}
 
 	private void read(InputStream in, ByteBuffer buff) throws IOException {
-		byte[] temp = new byte[1];
+//		byte[] temp = new byte[1];  //直接每次读取一个字节来判断
+		byte[] temp = new byte[1024];
 		try {
 			int size = in.read(temp);
 			if (size > 0) {
