@@ -137,6 +137,7 @@ public class SSLClient {
 	}
 
 	private void handShake() throws IOException {
+		int originP = 0;
 		sslengine.beginHandshake(); //显示的调用,否则,handshakestatus 为NOT_HANDSHAKING
 		handshakeStatus = sslengine.getHandshakeStatus();
 		// HandshakeStatus.FINISHED 只能根据wrap/unwrap获取
@@ -146,8 +147,16 @@ public class SSLClient {
 				SSLEngineResult wrapResult = sslengine.wrap(myAppData, myNetData);
 				handshakeStatus = wrapResult.getHandshakeStatus();
 				status = wrapResult.getStatus();
-				if(status == Status.BUFFER_OVERFLOW){//myNetData空间不足,扩容一个标准包大小
-					increaseCapcity(myNetData,true);
+				switch (status) {
+				case BUFFER_OVERFLOW://myNetData空间不足,扩容一个标准包大小
+					originP = myNetData.position();
+					myNetData = increaseCapcity(myNetData,originP,true);
+					break;
+				case CLOSED:
+					System.out.println("已关闭");
+					break;
+				default:
+					break;
 				}
 				out.write(bytes(myNetData));
 				out.flush();
@@ -157,14 +166,31 @@ public class SSLClient {
 				if(read){
 					read(in, peerNetData);
 				}
+				originP = peerNetData.position();
 				peerNetData.flip();
 				SSLEngineResult unwrapResult = sslengine.unwrap(peerNetData, peerAppData);
 				handshakeStatus = unwrapResult.getHandshakeStatus();
 				status = unwrapResult.getStatus();
-				if(status == Status.BUFFER_UNDERFLOW && handshakeStatus == HandshakeStatus.NEED_UNWRAP){
+				
+				switch (status) {
+				case BUFFER_UNDERFLOW:
+					peerNetData = increaseCapcity(peerNetData, originP, true);
 					read = true;
-				}else{
+					break;
+				case BUFFER_OVERFLOW:
+					originP = peerAppData.position();
+					peerAppData = increaseCapcity(peerAppData, originP, true);
 					read = false;
+					break;
+				case OK:
+					read = false;
+					break;
+				case CLOSED:
+					read = false;
+					System.out.println("已关闭");
+					break;
+				default:
+					break;
 				}
 					/**
 					 * 缓存byte数组设置过大
@@ -173,8 +199,8 @@ public class SSLClient {
 					 * 3,读取多了,需要多次unwrap(这里不能再次读)
 					 */
 					
-				if (peerNetData.hasRemaining()) {
-					peerNetData.compact();// 还没有读完
+				if (peerNetData.hasRemaining() && peerNetData.limit() != peerNetData.capacity()) {//limit = capacity ,这时不能compact
+					peerNetData.compact();// 还没有读全,需要重设位置,继续读
 				} else {
 					peerNetData.clear();
 				}
@@ -202,7 +228,7 @@ public class SSLClient {
 	 * @param buff 带扩容buffer
 	 * @param packet 是否是packet
 	 */
-	private void increaseCapcity(ByteBuffer buff,boolean packet) {
+	private ByteBuffer increaseCapcity(ByteBuffer buff,int originP,boolean packet) {
 		SSLSession sslSession = sslengine.getSession();
 		int size = 0;
 		if(packet){
@@ -211,14 +237,18 @@ public class SSLClient {
 			size = sslSession.getApplicationBufferSize()+buff.capacity();
 		}
 		byte [] dest = new byte[size];
-		int position = buff.position();
-		if(position != 0){
-			buff.flip();
-			byte [] src = new byte[position];
+		ByteBuffer newBuffer = null;
+		if(originP != 0){
+			buff.position(0).limit(originP);
+			byte [] src = new byte[originP];
 			buff.get(src);
-			System.arraycopy(src, 0, dest, 0, position);
+			System.arraycopy(src, 0, dest, 0, originP);
+			newBuffer = ByteBuffer.wrap(dest);
+			newBuffer.limit(originP); //表示之前的数据位置,后面会compact
+		}else{
+			newBuffer = ByteBuffer.wrap(dest);
 		}
-		buff = ByteBuffer.wrap(dest);
+		return newBuffer;
 	}
 
 	private byte[] bytes(ByteBuffer buff) {
@@ -239,10 +269,10 @@ public class SSLClient {
 		myNetData = ByteBuffer.allocate(sslSession.getPacketBufferSize());
 		peerNetData = ByteBuffer.allocate(sslSession.getPacketBufferSize());
 		peerAppData = ByteBuffer.allocate(sslSession.getApplicationBufferSize());
-		myAppData = ByteBuffer.allocate(1); //扩容测试
-		myNetData = ByteBuffer.allocate(1);
-		peerNetData = ByteBuffer.allocate(1);
-		peerAppData = ByteBuffer.allocate(1);
+		myAppData = ByteBuffer.allocate(22); //扩容测试
+		myNetData = ByteBuffer.allocate(33);
+		peerNetData = ByteBuffer.allocate(55);
+		peerAppData = ByteBuffer.allocate(222);
 //		 System.out.println("支持的协议: " +
 //		 Arrays.asList(sslengine.getSupportedProtocols()));
 //		 System.out.println("启用的协议: " +
@@ -270,7 +300,7 @@ public class SSLClient {
 
 	private void read(InputStream in, ByteBuffer buff) throws IOException {
 //		byte[] temp = new byte[1];  //直接每次读取一个字节来判断
-		byte[] temp = new byte[1024];
+		byte[] temp = new byte[buff.limit()-buff.position()];
 		try {
 			int size = in.read(temp);
 			if (size > 0) {
