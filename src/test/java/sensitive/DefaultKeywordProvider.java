@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 默认关键字实现。
+ *改造后的版本,,如果敏感字为 ab,abc, 输入ab可以匹配,输入abc,根据在map中的顺序,匹配ab或者abc,随机性
  *
  */
 class DefaultKeywordProvider {
@@ -144,7 +144,7 @@ class DefaultKeywordProvider {
 		return Character.isWhitespace(c) || SPECIAL_CHARACTER.indexOf(c) >= 0;
 	}
 
-	private void parseKeywords(String keyword) {
+	public void parseKeywords(String keyword) {
 		List<Symbol> symbols = new ArrayList<>();
 		Set<Character> words;
 		List<Symbol> prevSymbols = new ArrayList<>();
@@ -221,7 +221,10 @@ class DefaultKeywordProvider {
 			return temp;
 		}
 	}
-
+	/**
+	 * 保证在map中每个树都是独立的
+	 * @author WJ
+	 */
 	private class Char {
 		private char w;
 		private String randomStr;
@@ -280,6 +283,8 @@ class DefaultKeywordProvider {
 		provider.parseKeywords(num1);
 		provider.parseKeywords(num);
 		Set<String> find = provider.find(num1);
+		System.out.println(provider.contains(num1));
 		System.out.println(find);
 	}
 }
+
