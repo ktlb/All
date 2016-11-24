@@ -24,6 +24,11 @@ public class Scanner {
 		this.timeout = timeout;
 		this.thread = thread;
 	}
+
+	/**
+	 * 测试过程中开启20个线程扫描,导致无法上网,初步估计是syn_sent 连接过多,导致无法上网
+	 * @param args
+	 */
 	public static void main(String[] args) {
 		new Scanner("localhost", 1000, 20).scan();
 	}
